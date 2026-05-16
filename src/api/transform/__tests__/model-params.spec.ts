@@ -994,4 +994,86 @@ describe("getModelParams", () => {
 			expect(result.reasoningBudget).toBe(8192) // Default thinking tokens
 		})
 	})
+
+	describe("Adaptive thinking models (e.g. claude-opus-4-7)", () => {
+		// claude-opus-4-7 uses supportsReasoningEffort (no supportsReasoningBudget).
+		// It requires thinking:{type:"adaptive"} + output_config:{effort}.
+		const adaptiveModel: ModelInfo = {
+			contextWindow: 200_000,
+			supportsPromptCache: true,
+			supportsReasoningEffort: ["low", "medium", "high", "xhigh"],
+		}
+		const adaptiveModelId = "claude-opus-4-7"
+
+		it("returns reasoning=undefined and no outputConfig when no effort is selected", () => {
+			const result = getModelParams({
+				format: "anthropic",
+				modelId: adaptiveModelId,
+				model: adaptiveModel,
+				settings: {},
+				defaultTemperature: 0,
+			})
+
+			expect(result.reasoning).toBeUndefined()
+			expect((result as any).outputConfig).toBeUndefined()
+			// temperature must be undefined — the API rejects it for adaptive models
+			expect(result.temperature).toBeUndefined()
+		})
+
+		it("returns reasoning={type:'adaptive'} and outputConfig.effort when effort is 'high'", () => {
+			const result = getModelParams({
+				format: "anthropic",
+				modelId: adaptiveModelId,
+				model: adaptiveModel,
+				settings: { reasoningEffort: "high", enableReasoningEffort: true },
+				defaultTemperature: 0,
+			})
+
+			expect((result.reasoning as any)?.type).toBe("adaptive")
+			expect((result as any).outputConfig).toEqual({ effort: "high" })
+			// temperature must be undefined — the API rejects it for adaptive models
+			expect(result.temperature).toBeUndefined()
+		})
+
+		it("maps xhigh effort correctly to outputConfig", () => {
+			const result = getModelParams({
+				format: "anthropic",
+				modelId: adaptiveModelId,
+				model: adaptiveModel,
+				settings: { reasoningEffort: "xhigh", enableReasoningEffort: true },
+				defaultTemperature: 0,
+			})
+
+			expect((result.reasoning as any)?.type).toBe("adaptive")
+			expect((result as any).outputConfig).toEqual({ effort: "xhigh" })
+			// temperature must be undefined — the API rejects it for adaptive models
+			expect(result.temperature).toBeUndefined()
+		})
+
+		it("does NOT use budget_tokens path — reasoningBudget is always undefined", () => {
+			const result = getModelParams({
+				format: "anthropic",
+				modelId: adaptiveModelId,
+				model: adaptiveModel,
+				settings: { reasoningEffort: "medium", enableReasoningEffort: true },
+				defaultTemperature: 0,
+			})
+
+			expect(result.reasoningBudget).toBeUndefined()
+		})
+
+		it("always omits temperature even when user sets a custom value", () => {
+			// The Anthropic API returns 400 if temperature is present for adaptive models.
+			// This must hold regardless of user-configured modelTemperature.
+			const result = getModelParams({
+				format: "anthropic",
+				modelId: adaptiveModelId,
+				model: adaptiveModel,
+				settings: { modelTemperature: 0.7 },
+				defaultTemperature: 0,
+			})
+
+			expect(result.temperature).toBeUndefined()
+		})
+	})
 })
