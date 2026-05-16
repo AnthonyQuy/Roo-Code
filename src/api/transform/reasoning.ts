@@ -19,6 +19,21 @@ export type RooReasoningParams = {
 
 export type AnthropicReasoningParams = BetaThinkingConfigParam
 
+/**
+ * Models that use Anthropic's Adaptive Thinking API:
+ *   thinking: { type: "adaptive" } + output_config: { effort: "low"|"medium"|"high"|"xhigh" }
+ *
+ * These models do NOT support the legacy budget_tokens approach.
+ */
+export const ANTHROPIC_ADAPTIVE_THINKING_MODEL_IDS = ["claude-opus-4-7"] as const
+
+export type AnthropicAdaptiveModelId = (typeof ANTHROPIC_ADAPTIVE_THINKING_MODEL_IDS)[number]
+
+export const isAnthropicAdaptiveModel = (modelId: string): modelId is AnthropicAdaptiveModelId =>
+	ANTHROPIC_ADAPTIVE_THINKING_MODEL_IDS.includes(modelId as AnthropicAdaptiveModelId)
+
+export type AnthropicOutputConfig = { effort: ReasoningEffortExtended }
+
 export type OpenAiReasoningParams = { reasoning_effort: OpenAI.Chat.ChatCompletionCreateParams["reasoning_effort"] }
 
 // Valid Gemini thinking levels for effort-based reasoning
