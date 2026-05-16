@@ -17,6 +17,7 @@ import {
 
 import {
 	type AnthropicReasoningParams,
+	type AnthropicOutputConfig,
 	type OpenAiReasoningParams,
 	type GeminiReasoningParams,
 	type OpenRouterReasoningParams,
@@ -24,6 +25,7 @@ import {
 	getOpenAiReasoning,
 	getGeminiReasoning,
 	getOpenRouterReasoning,
+	isAnthropicAdaptiveModel,
 } from "./reasoning"
 
 type Format = "anthropic" | "openai" | "gemini" | "openrouter"
@@ -48,6 +50,8 @@ type BaseModelParams = {
 type AnthropicModelParams = {
 	format: "anthropic"
 	reasoning: AnthropicReasoningParams | undefined
+	/** Present only for adaptive thinking models (e.g. claude-opus-4-7). */
+	outputConfig?: AnthropicOutputConfig
 } & BaseModelParams
 
 type OpenAiModelParams = {
@@ -147,6 +151,33 @@ export function getModelParams({
 	const params: BaseModelParams = { maxTokens, temperature, reasoningEffort, reasoningBudget, verbosity }
 
 	if (format === "anthropic") {
+		// Adaptive thinking models (e.g. claude-opus-4-7) use a different API shape:
+		//   thinking: { type: "adaptive" }  +  output_config: { effort: "low"|"medium"|"high"|"xhigh" }
+		// The legacy { type: "enabled", budget_tokens } is NOT supported on these models.
+		if (isAnthropicAdaptiveModel(modelId)) {
+			// Adaptive thinking models do not support the `temperature` parameter at all —
+			// the API returns a 400 error if it is present in the request body.
+			params.temperature = undefined
+
+			// Only send adaptive thinking when the user has actually chosen an effort level.
+			const adaptiveEffort = reasoningEffort ?? null
+			if (adaptiveEffort) {
+				return {
+					format,
+					...params,
+					// Double-cast required: SDK 0.37 doesn't type "adaptive" yet.
+					reasoning: { type: "adaptive" } as unknown as AnthropicReasoningParams,
+					outputConfig: { effort: adaptiveEffort },
+				}
+			}
+			// Reasoning disabled / not selected for an adaptive model → omit thinking entirely.
+			return {
+				format,
+				...params,
+				reasoning: undefined,
+			}
+		}
+
 		return {
 			format,
 			...params,

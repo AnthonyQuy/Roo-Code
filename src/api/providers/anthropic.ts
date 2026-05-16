@@ -57,17 +57,20 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 			maxTokens,
 			temperature,
 			reasoning: thinking,
+			outputConfig,
 		} = this.getModel()
 
 		// Filter out non-Anthropic blocks (reasoning, thoughtSignature, etc.) before sending to the API
 		const sanitizedMessages = filterNonAnthropicBlocks(messages)
 
-		// Add 1M context beta flag if enabled for supported models (Claude Sonnet 4/4.5/4.6, Opus 4.6)
+		// Add 1M context beta flag if enabled for supported models (Claude Sonnet 4/4.5/4.6/4.7, Opus 4.6/4.7)
 		if (
 			(modelId === "claude-sonnet-4-20250514" ||
 				modelId === "claude-sonnet-4-5" ||
 				modelId === "claude-sonnet-4-6" ||
-				modelId === "claude-opus-4-6") &&
+				modelId === "claude-sonnet-4-7" ||
+				modelId === "claude-opus-4-6" ||
+				modelId === "claude-opus-4-7") &&
 			this.options.anthropicBeta1MContext
 		) {
 			betas.push("context-1m-2025-08-07")
@@ -79,9 +82,11 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 		}
 
 		switch (modelId) {
+			case "claude-sonnet-4-7":
 			case "claude-sonnet-4-6":
 			case "claude-sonnet-4-5":
 			case "claude-sonnet-4-20250514":
+			case "claude-opus-4-7":
 			case "claude-opus-4-6":
 			case "claude-opus-4-5-20251101":
 			case "claude-opus-4-1-20250805":
@@ -110,33 +115,38 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 				const lastUserMsgIndex = userMsgIndices[userMsgIndices.length - 1] ?? -1
 				const secondLastMsgUserIndex = userMsgIndices[userMsgIndices.length - 2] ?? -1
 
-				stream = await this.client.messages.create(
-					{
-						model: modelId,
-						max_tokens: maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
-						temperature,
-						thinking,
-						// Setting cache breakpoint for system prompt so new tasks can reuse it.
-						system: [{ text: systemPrompt, type: "text", cache_control: cacheControl }],
-						messages: sanitizedMessages.map((message, index) => {
-							if (index === lastUserMsgIndex || index === secondLastMsgUserIndex) {
-								return {
-									...message,
-									content:
-										typeof message.content === "string"
-											? [{ type: "text", text: message.content, cache_control: cacheControl }]
-											: message.content.map((content, contentIndex) =>
-													contentIndex === message.content.length - 1
-														? { ...content, cache_control: cacheControl }
-														: content,
-												),
-								}
+				const createBody: any = {
+					model: modelId,
+					max_tokens: maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
+					temperature,
+					thinking,
+					// Adaptive thinking models (e.g. claude-opus-4-7) require output_config.effort
+					// in addition to thinking: { type: "adaptive" }. SDK 0.37 doesn't type this field.
+					...(outputConfig && { output_config: outputConfig }),
+					// Setting cache breakpoint for system prompt so new tasks can reuse it.
+					system: [{ text: systemPrompt, type: "text", cache_control: cacheControl }],
+					messages: sanitizedMessages.map((message, index) => {
+						if (index === lastUserMsgIndex || index === secondLastMsgUserIndex) {
+							return {
+								...message,
+								content:
+									typeof message.content === "string"
+										? [{ type: "text", text: message.content, cache_control: cacheControl }]
+										: message.content.map((content, contentIndex) =>
+												contentIndex === message.content.length - 1
+													? { ...content, cache_control: cacheControl }
+													: content,
+											),
 							}
-							return message
-						}),
-						stream: true,
-						...nativeToolParams,
-					},
+						}
+						return message
+					}),
+					stream: true,
+					...nativeToolParams,
+				}
+
+				stream = (await this.client.messages.create(
+					createBody,
 					(() => {
 						// prompt caching: https://x.com/alexalbert__/status/1823751995901272068
 						// https://github.com/anthropics/anthropic-sdk-typescript?tab=readme-ov-file#default-headers
@@ -144,9 +154,11 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 
 						// Then check for models that support prompt caching
 						switch (modelId) {
+							case "claude-sonnet-4-7":
 							case "claude-sonnet-4-6":
 							case "claude-sonnet-4-5":
 							case "claude-sonnet-4-20250514":
+							case "claude-opus-4-7":
 							case "claude-opus-4-6":
 							case "claude-opus-4-5-20251101":
 							case "claude-opus-4-1-20250805":
@@ -163,7 +175,7 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 								return undefined
 						}
 					})(),
-				)
+				)) as unknown as AnthropicStream<Anthropic.Messages.RawMessageStreamEvent>
 				break
 			}
 			default: {
@@ -316,7 +328,9 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 			(id === "claude-sonnet-4-20250514" ||
 				id === "claude-sonnet-4-5" ||
 				id === "claude-sonnet-4-6" ||
-				id === "claude-opus-4-6") &&
+				id === "claude-sonnet-4-7" ||
+				id === "claude-opus-4-6" ||
+				id === "claude-opus-4-7") &&
 			this.options.anthropicBeta1MContext
 		) {
 			// Use the tier pricing for 1M context
